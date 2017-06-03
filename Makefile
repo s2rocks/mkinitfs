@@ -1,17 +1,16 @@
 
-VERSION		:= 3.1.0_rc1
+VERSION		:= 1.0-pre1
 
 sysconfdir	?= /etc/mkinitfs
 datarootdir	?= /usr/share
 datadir		?= $(datarootdir)/mkinitfs
 
-SBIN_FILES	:= mkinitfs bootchartd nlplug-findfs
+SBIN_FILES	:= mkinitfs nlplug-findfs
 SHARE_FILES	:= initramfs-init fstab passwd group
 CONF_FILES	:= mkinitfs.conf \
 		features.d/ata.modules \
 		features.d/base.files \
 		features.d/base.modules \
-		features.d/bootchart.files \
 		features.d/btrfs.modules \
 		features.d/cdrom.modules \
 		features.d/cramfs.modules \
@@ -47,7 +46,7 @@ CONF_FILES	:= mkinitfs.conf \
 		features.d/zfs.files \
 		features.d/zfs.modules
 
-SCRIPTS		:= mkinitfs bootchartd initramfs-init
+SCRIPTS		:= mkinitfs initramfs-init
 IN_FILES	:= $(addsuffix .in,$(SCRIPTS))
 
 GIT_REV := $(shell test -d .git && git describe || echo exported)

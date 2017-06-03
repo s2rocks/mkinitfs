@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # this is the init script version
 VERSION=@VERSION@
@@ -7,9 +7,8 @@ sysroot=/sysroot
 splashfile=/.splash.ctrl
 repofile=/tmp/repositories
 
-/bin/busybox mkdir -p /usr/bin /usr/sbin /proc /sys /dev $sysroot \
+/usr/bin/mkdir -p /usr/bin /usr/sbin /proc /sys /dev $sysroot \
 	/media/cdrom /media/usb /tmp /run
-/bin/busybox --install -s
 
 # basic environment
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
@@ -20,6 +19,9 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 # basic mounts
 mount -t proc -o noexec,nosuid,nodev proc /proc
 mount -t sysfs -o noexec,nosuid,nodev sysfs /sys
+mount -t tmpfs -o noexec,nosuid,nodev tmpfs /run
+mkdir /run/openrc
+touch /run/openrc/softlevel
 
 # some helpers
 ebegin() {
@@ -39,7 +41,7 @@ eend() {
 		fi
 		echo "failed. $*"
 		echo "initramfs emergency recovery shell launched. Type 'exit' to continue boot"
-		/bin/busybox sh
+		/bin/bash
 	fi
 }
 
@@ -225,7 +227,7 @@ relocate_mount() {
 			local oldmnt=$(awk -v d=$dev '$1==d {print $2}' /proc/mounts)
 			if [ "$oldmnt" != "$mnt" ]; then
 				mkdir -p "$mnt"
-				mount -o move "$oldmnt" "$mnt"
+				mount --move "$oldmnt" "$mnt"
 			fi
 		fi
 	done < $repofile
@@ -260,8 +262,8 @@ setup_nbd() {
 #  acpi_osi="!Windows 2006" xen-pciback.hide=(01:00.0)
 set -- $(cat /proc/cmdline)
 
-myopts="alpine_dev autodetect autoraid chart cryptroot cryptdm cryptheader cryptoffset
-	debug_init dma init_args keep_apk_new modules ovl_dev pkgs quiet root_size root
+myopts="alpine_dev autodetect autoraid debug_init
+	dma init_args keep_apk_new modules ovl_dev pkgs quiet root_size root
 	usbdelay ip alpine_repo apkovl alpine_start splash blacklist
 	overlaytmpfs rootfstype rootflags nbd resume"
 
@@ -286,7 +288,7 @@ for opt; do
 	done
 done
 
-[ "$KOPT_quiet" = yes ] || echo "Alpine Init $VERSION"
+[ "$KOPT_quiet" = yes ] || echo "S2/OS Init $VERSION"
 
 # enable debugging if requested
 [ -n "$KOPT_debug_init" ] && set -x
@@ -339,6 +341,7 @@ mount -t devpts -o gid=5,mode=0620,noexec,nosuid devpts /dev/pts
 [ -d /dev/shm ] || mkdir /dev/shm
 mount -t tmpfs -o nodev,nosuid,noexec shm /dev/shm
 
+mount -t tmpfs -o nodev,nosuid,noexec run /run
 # load available drivers to get access to modloop media
 ebegin "Loading boot drivers"
 
@@ -351,18 +354,6 @@ if [ -f /etc/modules ] ; then
 fi
 eend 0
 
-if [ -n "$KOPT_cryptroot" ]; then
-	cryptopts="-c ${KOPT_cryptroot}"
-	if [ -n "$KOPT_cryptdm" ]; then
-		cryptopts="$cryptopts -m ${KOPT_cryptdm}"
-	fi
-	if [ -n "$KOPT_cryptheader" ]; then
-		cryptopts="$cryptopts -H ${KOPT_cryptheader}"
-	fi
-	if [ -n "$KOPT_cryptoffset" ]; then
-		cryptopts="$cryptopts -o ${KOPT_cryptoffset}"
-	fi
-fi
 
 if [ -n "$KOPT_nbd" ]; then
 	configure_ip
@@ -380,8 +371,6 @@ if [ -n "$KOPT_root" ]; then
 	fi
 
 	ebegin "Mounting root"
-	nlplug-findfs $cryptopts -p /sbin/mdev ${KOPT_debug_init:+-d} \
-		$KOPT_root
 
 	if [ -n "$KOPT_resume" ]; then
 		echo "Resume from disk"
@@ -409,13 +398,16 @@ if [ -n "$KOPT_root" ]; then
 	cat /proc/mounts | while read DEV DIR TYPE OPTS ; do
 		if [ "$DIR" != "/" -a "$DIR" != "$sysroot" -a -d "$DIR" ]; then
 			mkdir -p $sysroot/$DIR
-			mount -o move $DIR $sysroot/$DIR
+			mount --move $DIR $sysroot/$DIR
 		fi
 	done
 	sync
-	exec /bin/busybox switch_root $sysroot $chart_init /sbin/init $KOPT_init_args
+
+	echo "Starting switch_root for shell"
+	exec /sbin/switch_root $sysroot /sbin/openrc-init default
+	# $KOPT_init_args
 	echo "initramfs emergency recovery shell launched"
-	exec /bin/busybox sh
+	exec /bin/bash
 fi
 
 if [ -n "$ALPINE_REPO" ]; then
@@ -424,12 +416,6 @@ else
 	repoopts="-b $repofile"
 fi
 
-# locate boot media and mount it
-ebegin "Mounting boot media"
-nlplug-findfs $cryptopts -p /sbin/mdev ${KOPT_debug_init:+-d} \
-	${KOPT_usbdelay:+-t $(( $KOPT_usbdelay * 1000 ))} \
-	$repoopts -a /tmp/apkovls
-eend $?
 
 # early console?
 if [ "$SINGLEMODE" = "yes" ]; then
@@ -510,34 +496,18 @@ if [ -f "$sysroot/etc/.default_boot_services" -o ! -f "$ovl" ]; then
 	rm -f "$sysroot/etc/.default_boot_services"
 fi
 
-if [ "$KOPT_splash" != "no" ]; then
-	echo "IMAGE_ALIGN=CM" > /tmp/fbsplash.cfg
-	for fbdev in /dev/fb[0-9]; do
-		[ -e "$fbdev" ] || break
-		num="${fbdev#/dev/fb}"
-		for img in /media/*/fbsplash$num.ppm; do
-			[ -e "$img" ] || break
-			config="${img%.*}.cfg"
-			[ -e "$config" ] || config=/tmp/fbsplash.cfg
-			fbsplash -s "$img" -d "$fbdev" -i "$config"
-			break
-		done
-	done
-	for fbsplash in /media/*/fbsplash.ppm; do
-		[ -e "$fbsplash" ] && break
-	done
-fi
+# legacy bootsplash stuff, good for reusing structure
+# moving to plymouth/etc
 
-if [ -n "$fbsplash" ] && [ -e "$fbsplash" ]; then
-	ebegin "Starting bootsplash"
-	mkfifo $sysroot/$splashfile
-	config="${fbsplash%.*}.cfg"
-	[ -e "$config" ] || config=/tmp/fbsplash.cfg
-	setsid fbsplash -T 16 -s "$fbsplash" -i $config -f $sysroot/$splashfile &
-	eend 0
-else
-	KOPT_splash="no"
-fi
+# if [ "$KOPT_splash" != "no" ]; then
+# fi
+
+# if [ -n "$fbsplash" ] && [ -e "$fbsplash" ]; then
+#	ebegin "Starting bootsplash"
+#	eend 0
+# else
+# 	KOPT_splash="no"
+# fi
 
 if [ -f $sysroot/etc/fstab ]; then
 	has_fstab=1
@@ -658,11 +628,11 @@ if [ "$KOPT_chart" = yes ]; then
 	chart_init="/sbin/bootchartd start-rootfs"
 fi
 
-if [ ! -x $sysroot/sbin/init ]; then
+if [ ! -x $sysroot/sbin/openrc-init ]; then
 	[ "$KOPT_splash" != "no" ] && echo exit > $sysroot/$splashfile
-	echo "/sbin/init not found in new root. Launching emergency recovery shell"
+	echo "/sbin/openrc-init not found in new root. Launching emergency recovery shell"
 	echo "Type exit to continue boot."
-	/bin/busybox sh
+	/bin/bash
 fi
 
 # switch over to new root
@@ -675,10 +645,12 @@ done
 sync
 
 [ "$KOPT_splash" = "init" ] && echo exit > $sysroot/$splashfile
-echo ""
-exec /bin/busybox switch_root $sysroot $chart_init /sbin/init $KOPT_init_args
+echo "Starting main system init"
+exec /sbin/switch_root $sysroot /sbin/openrc-init default
+
+# $KOPT_init_args
 
 [ "$KOPT_splash" != "no" ] && echo exit > $sysroot/$splashfile
 echo "initramfs emergency recovery shell launched"
-exec /bin/busybox sh
-reboot
+exec /bin/bash
+rebootf
