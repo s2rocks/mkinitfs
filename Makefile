@@ -87,9 +87,11 @@ LIBKMOD_CFLAGS	:= $(shell $(PKGCONF) --cflags libkmod)
 LIBKMOD_LIBS	:= $(shell $(PKGCONF) --libs libkmod)
 CRYPTSETUP_CFLAGS := $(shell $(PKGCONF) --cflags libcryptsetup)
 CRYPTSETUP_LIBS	:= $(shell $(PKGCONF) --libs libcryptsetup)
+BSD_CFLAGS := $(shell $(PKGCONF) --cflags libbsd)
+BSD_LIBS := $(shell $(PKGCONF) --libs libbsd)
 
-CFLAGS		+= $(BLKID_CFLAGS) $(LIBKMOD_CFLAGS) $(CRYPTSETUP_CFLAGS)
-LIBS		= $(BLKID_LIBS) $(LIBKMOD_LIBS) $(CRYPTSETUP_LIBS)
+CFLAGS		+= $(BLKID_CFLAGS) $(LIBKMOD_CFLAGS) $(CRYPTSETUP_CFLAGS) $(BSD_CFLAGS)
+LIBS		= $(BLKID_LIBS) $(LIBKMOD_LIBS) $(CRYPTSETUP_LIBS) $(BSD_LIBS) -lpthread
 
 %.o: %.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ -c $<

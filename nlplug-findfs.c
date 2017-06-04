@@ -31,6 +31,8 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
+#include <sys/sysmacros.h>
+#include <bsd/string.h>
 
 #include <linux/netlink.h>
 
